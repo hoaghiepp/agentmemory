@@ -32,12 +32,23 @@ services:
       - "traefik.http.routers.agentmemory-api.entrypoints=http"
       - "traefik.http.routers.agentmemory-api.service=agentmemory-api-svc"
       - "traefik.http.services.agentmemory-api-svc.loadbalancer.server.port=3111"
-      - "traefik.http.routers.agentmemory-ui.rule=Host(`agentmem-ui.dhhcloud.io.vn`)"
-      - "traefik.http.routers.agentmemory-ui.entrypoints=http"
-      - "traefik.http.routers.agentmemory-ui.service=agentmemory-ui-svc"
-      - "traefik.http.services.agentmemory-ui-svc.loadbalancer.server.port=3113"
-      - "traefik.http.routers.agentmemory-ui.middlewares=agentmemory-auth"
-      - "traefik.http.middlewares.agentmemory-auth.basicauth.users=admin:$apr1$E1ltcGk.$mdsscE/CSxwEx2./aJu9t."
+      
+    agentmemory-ui-proxy:
+      image: alpine/socat
+      restart: unless-stopped
+      command: TCP-LISTEN:3113,fork,reuseaddr TCP:agentmemory:3113
+      networks:
+        - default
+      depends_on:
+        - agentmemory
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.agentmemory-ui.rule=Host(`agentmem-ui.dhhcloud.io.vn`)"
+        - "traefik.http.routers.agentmemory-ui.entrypoints=http"
+        - "traefik.http.routers.agentmemory-ui.service=agentmemory-ui-svc"
+        - "traefik.http.services.agentmemory-ui-svc.loadbalancer.server.port=3113"
+        - "traefik.http.routers.agentmemory-ui.middlewares=agentmemory-auth"
+        - "traefik.http.middlewares.agentmemory-auth.basicauth.users=admin:$apr1$E1ltcGk.$mdsscE/CSxwEx2./aJu9t."
 
 volumes:
   agentmemory-data:
