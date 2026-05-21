@@ -25,6 +25,16 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
+  viewer-proxy:
+    image: alpine/socat
+    restart: unless-stopped
+    network_mode: "service:agentmemory"
+    command: >
+      sh -lc "
+      apk add --no-cache socat &&
+      socat TCP-LISTEN:3114,bind=0.0.0.0,fork,reuseaddr TCP:127.0.0.1:3113
+      "
+    environment:
+      - SERVICE_FQDN_VIEWER_3114=https://agentmem-ui.dhhcloud.io.vn
 volumes:
   agentmemory-data:
