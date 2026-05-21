@@ -30,9 +30,9 @@ services:
     restart: unless-stopped
     network_mode: "service:agentmemory"
     command:
-    - sh
-    - -lc
-    - apk add --no-cache socat && exec socat TCP-LISTEN:3114,bind=0.0.0.0,fork,reuseaddr TCP:127.0.0.1:3113
+      - socat
+      - TCP-LISTEN:3114,bind=0.0.0.0,fork,reuseaddr
+      - TCP:127.0.0.1:3113
     environment:
       - SERVICE_FQDN_VIEWER_3114=https://agentmem-ui.dhhcloud.io.vn
     labels:
