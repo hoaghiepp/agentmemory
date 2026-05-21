@@ -36,5 +36,8 @@ services:
       "
     environment:
       - SERVICE_FQDN_VIEWER_3114=https://agentmem-ui.dhhcloud.io.vn
+    labels:
+      - traefik.http.middlewares.viewer-auth.basicauth.users=admin:$apr1$E1ltcGk.$mdsscE/CSxwEx2./aJu9t.
+      - traefik.http.routers.viewer-proxy.middlewares=viewer-auth
 volumes:
   agentmemory-data:
