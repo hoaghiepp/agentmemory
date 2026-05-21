@@ -12,6 +12,7 @@ services:
       SERVICE_FQDN_AGENTMEMORY_3111: ${SERVICE_FQDN_AGENTMEMORY_3111}
     expose:
       - "3111"
+      - "3113"
     ports:
       - "127.0.0.1:3113:3113"
     volumes:
