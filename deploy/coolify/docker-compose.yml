@@ -13,8 +13,6 @@ services:
     expose:
       - "3111"
       - "3113"
-    ports:
-      - "3113:3113"
     volumes:
       - agentmemory-data:/data
     healthcheck:
@@ -28,6 +26,24 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    labels:
+      - "traefik.enable=true"
+
+      # Domain API → port 3111
+      - "traefik.http.routers.agentmemory-api.rule=Host(`agentmem.dhhcloud.io.vn`)"
+      - "traefik.http.routers.agentmemory-api.entrypoints=https"
+      - "traefik.http.routers.agentmemory-api.tls=true"
+      - "traefik.http.routers.agentmemory-api.service=agentmemory-api-svc"
+      - "traefik.http.services.agentmemory-api-svc.loadbalancer.server.port=3111"
+
+      # Domain UI → port 3113 + basic auth
+      - "traefik.http.routers.agentmemory-ui.rule=Host(`agentmem-ui.dhhcloud.io.vn`)"
+      - "traefik.http.routers.agentmemory-ui.entrypoints=https"
+      - "traefik.http.routers.agentmemory-ui.tls=true"
+      - "traefik.http.routers.agentmemory-ui.service=agentmemory-ui-svc"
+      - "traefik.http.services.agentmemory-ui-svc.loadbalancer.server.port=3113"
+      - "traefik.http.routers.agentmemory-ui.middlewares=agentmemory-auth"
+      - "traefik.http.middlewares.agentmemory-auth.basicauth.users=admin:$$apr1$$E1ltcGk.$$mdsscE/CSxwEx2./aJu9t.
 
 volumes:
   agentmemory-data:
