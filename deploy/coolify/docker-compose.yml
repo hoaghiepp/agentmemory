@@ -37,7 +37,7 @@ services:
       - "traefik.http.routers.agentmemory-ui.service=agentmemory-ui-svc"
       - "traefik.http.services.agentmemory-ui-svc.loadbalancer.server.port=3113"
       - "traefik.http.routers.agentmemory-ui.middlewares=agentmemory-auth"
-      - "traefik.http.middlewares.agentmemory-auth.basicauth.users=admin:$$apr1$$E1ltcGk.$$mdsscE/CSxwEx2./aJu9t."
+      - "traefik.http.middlewares.agentmemory-auth.basicauth.users=admin:$apr1$E1ltcGk.$mdsscE/CSxwEx2./aJu9t."
 
 volumes:
   agentmemory-data:
