@@ -61,6 +61,14 @@ setBootVerbose(IS_VERBOSE);
 
 const IS_RESET = args.includes("--reset");
 
+// --version / -V early exit. Print VERSION + exit before any side effects
+// (engine boot, env load, dir mkdir). `-v` is taken by --verbose so we
+// reserve `-V` (capital) for version per POSIX convention.
+if (args.includes("--version") || args.includes("-V")) {
+  process.stdout.write(`${VERSION}\n`);
+  process.exit(0);
+}
+
 // Pinned iii-engine version. The unpinned `install.iii.dev/iii/main/install.sh`
 // script tracks `latest`, which made every fresh agentmemory install pull
 // engine 0.11.6 — and 0.11.6 introduces a new sandbox-everything-via-
@@ -117,8 +125,9 @@ Usage: agentmemory [command] [options]
 Commands:
   (default)          Start agentmemory worker
   init               Copy bundled .env.example to ~/.agentmemory/.env if absent
-  connect [agent]    Wire agentmemory into an installed agent (claude-code, codex,
-                     cursor, gemini-cli, openclaw, hermes, pi, openhuman).
+  connect [agent]    Wire agentmemory into an installed agent (claude-code,
+                     copilot-cli, codex, cursor, gemini-cli, openclaw,
+                     hermes, pi, openhuman).
                      No arg = interactive picker. --all wires every detected agent.
                      --dry-run shows what would change. --force re-installs.
   status             Show connection status, memory count, flags, and health
@@ -302,10 +311,18 @@ async function isAgentmemoryReady(): Promise<boolean> {
 }
 
 function findIiiConfig(): string {
+  // Precedence (user-overridable wins): explicit env > project cwd >
+  // ~/.agentmemory/ > bundled. The bundled config used to win
+  // unconditionally, so users hitting the observability log-feedback
+  // loop (#519) had no way to drop a tamer config in place without
+  // editing node_modules.
+  const envPath = process.env["AGENTMEMORY_III_CONFIG"];
   const candidates = [
+    ...(envPath ? [envPath] : []),
+    join(process.cwd(), "iii-config.yaml"),
+    join(homedir(), ".agentmemory", "iii-config.yaml"),
     join(__dirname, "iii-config.yaml"),
     join(__dirname, "..", "iii-config.yaml"),
-    join(process.cwd(), "iii-config.yaml"),
   ];
   for (const c of candidates) {
     if (existsSync(c)) return c;
@@ -358,19 +375,28 @@ function iiiBinVersion(binPath: string): string | null {
   }
 }
 
-let warnedVersionMismatch = false;
-function warnIfEngineVersionMismatch(iiiBinPath: string | null | undefined): void {
-  if (!iiiBinPath || warnedVersionMismatch) return;
+// Enforce hard-pin on iii-engine version. Soft-warn lets the worker boot
+// against a mismatched engine and crash at runtime (state::list-not-found
+// on v0.13.0+, sandbox-everything trap on v0.11.6+). Refuse to start and
+// point the user at the downgrade command — same escape hatch as before
+// via AGENTMEMORY_III_VERSION, which redefines IIPINNED_VERSION upstream
+// (line 75) so the mismatch check passes for users who knowingly want to
+// run against a different engine.
+function enforceEngineVersionPin(iiiBinPath: string | null | undefined): void {
+  if (!iiiBinPath) return;
   const detected = iiiBinVersion(iiiBinPath);
   if (!detected || detected === IIPINNED_VERSION) return;
-  warnedVersionMismatch = true;
   const asset = iiiReleaseAsset();
   const downloadHint = asset
     ? `curl -fsSL https://github.com/iii-hq/iii/releases/download/iii/v${IIPINNED_VERSION}/${asset} | tar -xz -C ~/.local/bin`
     : `download v${IIPINNED_VERSION} from https://github.com/iii-hq/iii/releases/tag/iii%2Fv${IIPINNED_VERSION}`;
-  p.log.warn(
-    `iii-engine on PATH is v${detected} but agentmemory v${VERSION} pins v${IIPINNED_VERSION}. Set AGENTMEMORY_III_VERSION=${detected} to silence, or downgrade with: \`${downloadHint}\``,
+  p.log.error(
+    `iii-engine on PATH is v${detected} but agentmemory v${VERSION} hard-pins v${IIPINNED_VERSION}. ` +
+      `Engine API drift causes runtime failures (e.g. state::list-not-found on v0.13.0). ` +
+      `Downgrade with: \`${downloadHint}\`. ` +
+      `Or set AGENTMEMORY_III_VERSION=${detected} to override at your own risk.`,
   );
+  process.exit(1);
 }
 
 function enginePidfilePath(): string {
@@ -563,7 +589,7 @@ function detectIiiConsole(): IiiConsoleState {
 }
 
 const III_CONSOLE_INSTALL_CMD =
-  "curl -fsSL https://install.iii.dev/console/main/install.sh | sh";
+  "curl -fsSL https://install.iii.dev/iii/main/install.sh | sh";
 
 async function ensureIiiConsole(): Promise<IiiConsoleState> {
   const state = detectIiiConsole();
@@ -744,7 +770,7 @@ function spawnEngineBackground(
 }
 
 function startIiiBin(iiiBin: string, configPath: string): boolean {
-  warnIfEngineVersionMismatch(iiiBin);
+  enforceEngineVersionPin(iiiBin);
   const s = p.spinner();
   s.start(`Starting iii-engine: ${iiiBin}`);
   writeEngineState({ kind: "native", configPath });
@@ -1035,7 +1061,7 @@ async function main() {
     if (IS_VERBOSE) p.log.success("iii-engine is running");
     const attachedBin =
       whichBinary("iii") ?? fallbackIiiPaths().find((p) => existsSync(p)) ?? null;
-    warnIfEngineVersionMismatch(attachedBin);
+    enforceEngineVersionPin(attachedBin);
     adoptRunningEngine();
     await import("./index.js");
     if (await waitForAgentmemoryReady(15000)) {
@@ -1153,7 +1179,7 @@ async function runStatus() {
       apiFetch<any>(base, "health"),
       apiFetch<any>(base, "sessions"),
       apiFetch<any>(base, "graph/stats"),
-      apiFetch<any>(base, "export"),
+      apiFetch<any>(base, "memories?count=true"),
       apiFetch<any>(base, "config/flags"),
     ]);
 
@@ -1163,15 +1189,19 @@ async function runStatus() {
     const h = healthRes?.health;
     const status = healthRes?.status || "unknown";
     const version = healthRes?.version || "?";
-    const sessions = Array.isArray(sessionsRes?.sessions) ? sessionsRes.sessions.length : 0;
+    const sessionList = Array.isArray(sessionsRes?.sessions) ? sessionsRes.sessions : [];
+    const sessions = sessionList.length;
     const nodes = Number(graphRes?.totalNodes ?? graphRes?.nodes ?? graphRes?.nodeCount ?? 0);
     const edges = Number(graphRes?.totalEdges ?? graphRes?.edges ?? graphRes?.edgeCount ?? 0);
     const cb = healthRes?.circuitBreaker?.state || "closed";
     const heapMB = h?.memory ? Math.round(h.memory.heapUsed / 1048576) : 0;
     const uptime = h?.uptimeSeconds ? Math.round(h.uptimeSeconds) : 0;
 
-    const obsCount = memoriesRes?.observations?.length || 0;
-    const memCount = memoriesRes?.memories?.length || 0;
+    const obsCount = sessionList.reduce(
+      (sum: number, s: any) => sum + (Number(s?.observationCount) || 0),
+      0,
+    );
+    const memCount = Number(memoriesRes?.latestCount ?? memoriesRes?.total ?? 0) || 0;
     const estFullTokens = obsCount * 80;
     const estInjectedTokens = Math.min(obsCount, 50) * 38;
     const tokensSaved = estFullTokens - estInjectedTokens;
